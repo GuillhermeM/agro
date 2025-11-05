@@ -32,21 +32,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-
-interface Animal {
-  id: string;
-  brinco: string;
-  especie: string;
-  race?: string;
-  lote: string;
-  peso: number;
-  data_nascimento: string;
-  status: string;
-}
+import type { Animal } from "@/lib/database.types";
 
 const Livestock = () => {
   const [user, setUser] = useState<any>(null);
   const [animals, setAnimals] = useState<Animal[]>([]);
+  const [farms, setFarms] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedSpecies, setSelectedSpecies] = useState("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -57,6 +48,7 @@ const Livestock = () => {
     lote: "",
     peso: "",
     dataNascimento: "",
+    farmId: "",
   });
   const navigate = useNavigate();
 
@@ -67,8 +59,24 @@ const Livestock = () => {
   useEffect(() => {
     if (user) {
       loadAnimals();
+      loadFarms();
     }
   }, [user]);
+
+  const loadFarms = async () => {
+    const { data, error } = await supabase
+      .from('farms')
+      .select('id, name')
+      .eq('user_id', user.id)
+      .order('name');
+
+    if (error) {
+      console.error("Erro ao carregar fazendas:", error);
+      return;
+    }
+
+    setFarms(data || []);
+  };
 
   const checkUser = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -116,6 +124,7 @@ const Livestock = () => {
       .from('animals')
       .insert({
         user_id: user.id,
+        farm_id: formData.farmId && formData.farmId !== 'none' ? formData.farmId : null,
         brinco: formData.brinco,
         especie: formData.especie,
         race: formData.race || null,
@@ -127,10 +136,11 @@ const Livestock = () => {
 
     if (error) {
       toast.error("Erro ao cadastrar animal");
+      console.error("Error adding animal:", error);
       return;
     }
 
-    setFormData({ brinco: "", especie: "", race: "", lote: "", peso: "", dataNascimento: "" });
+    setFormData({ brinco: "", especie: "", race: "", lote: "", peso: "", dataNascimento: "", farmId: "" });
     setIsDialogOpen(false);
     toast.success("Animal cadastrado com sucesso!");
     loadAnimals();
@@ -250,6 +260,25 @@ const Livestock = () => {
                       value={formData.brinco}
                       onChange={(e) => setFormData({ ...formData, brinco: e.target.value })}
                     />
+                  </div>
+                  <div>
+                    <Label htmlFor="farmId">Fazenda (Opcional)</Label>
+                    <Select
+                      value={formData.farmId}
+                      onValueChange={(value) => setFormData({ ...formData, farmId: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione a fazenda" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Sem fazenda</SelectItem>
+                        {farms.map((farm) => (
+                          <SelectItem key={farm.id} value={farm.id}>
+                            {farm.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <Label htmlFor="especie">Espécie</Label>

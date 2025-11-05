@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { 
   Tractor, 
   Users, 
@@ -10,17 +11,25 @@ import {
   TrendingUp, 
   AlertCircle,
   Beef,
-  Bird,
-  Rabbit,
-  LogOut
+  Activity,
+  Calendar,
+  DollarSign,
+  LogOut,
+  ArrowUpRight,
+  ArrowDownRight,
+  RefreshCw
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from "recharts";
+import type { Farm, Animal, HealthRecord } from "@/lib/database.types";
+import { toast } from "sonner";
 
 const Dashboard = () => {
   const [user, setUser] = useState<any>(null);
-  const [farms, setFarms] = useState<any[]>([]);
-  const [totalAnimals, setTotalAnimals] = useState(0);
-  const [totalAlerts, setTotalAlerts] = useState(0);
+  const [farms, setFarms] = useState<Farm[]>([]);
+  const [animals, setAnimals] = useState<Animal[]>([]);
+  const [recentHealthRecords, setRecentHealthRecords] = useState<HealthRecord[]>([]);
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -31,6 +40,18 @@ const Dashboard = () => {
     if (user) {
       loadDashboardData();
     }
+  }, [user]);
+
+  // Recarregar dados quando a página ficar visível novamente
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && user) {
+        loadDashboardData();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [user]);
 
   const checkUser = async () => {
@@ -54,49 +75,57 @@ const Dashboard = () => {
   };
 
   const loadDashboardData = async () => {
-    // Load farms
-    const { data: farmsData } = await supabase
-      .from('farms')
-      .select('*')
-      .eq('user_id', user.id);
-    
-    if (farmsData) {
-      // Load animals count for each farm
-      const farmsWithAnimals = await Promise.all(
-        farmsData.map(async (farm) => {
-          const { count } = await supabase
-            .from('animals')
-            .select('*', { count: 'exact', head: true })
-            .eq('farm_id', farm.id);
-          
-          return {
-            ...farm,
-            animals: count || 0
-          };
-        })
-      );
-      setFarms(farmsWithAnimals);
+    setLoading(true);
+    try {
+      // Load farms
+      const { data: farmsData, error: farmsError } = await supabase
+        .from('farms')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      
+      if (farmsError) {
+        console.error('Error loading farms:', farmsError);
+        toast.error('Erro ao carregar fazendas');
+      } else if (farmsData) {
+        console.log('Farms loaded:', farmsData.length);
+        setFarms(farmsData);
+      }
+
+      // Load all animals
+      const { data: animalsData, error: animalsError } = await supabase
+        .from('animals')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      
+      if (animalsError) {
+        console.error('Error loading animals:', animalsError);
+        toast.error('Erro ao carregar animais');
+      } else if (animalsData) {
+        console.log('Animals loaded:', animalsData.length);
+        setAnimals(animalsData);
+      }
+
+      // Load recent health records (last 10)
+      const { data: healthData, error: healthError } = await supabase
+        .from('health_records')
+        .select('*, animals(brinco, especie)')
+        .eq('user_id', user.id)
+        .order('data', { ascending: false })
+        .limit(10);
+      
+      if (healthError) {
+        console.error('Error loading health records:', healthError);
+      } else if (healthData) {
+        console.log('Health records loaded:', healthData.length);
+        setRecentHealthRecords(healthData);
+      }
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
+    } finally {
+      setLoading(false);
     }
-
-    // Load total animals
-    const { count: animalsCount } = await supabase
-      .from('animals')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', user.id);
-    
-    setTotalAnimals(animalsCount || 0);
-
-    // Load health alerts (records from last 7 days)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    
-    const { count: alertsCount } = await supabase
-      .from('health_records')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', user.id)
-      .gte('data', sevenDaysAgo.toISOString());
-    
-    setTotalAlerts(alertsCount || 0);
   };
 
   const handleSignOut = async () => {
@@ -104,15 +133,88 @@ const Dashboard = () => {
     navigate("/auth");
   };
 
-  if (!user) {
-    return null;
+  if (!user || loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background flex items-center justify-center">
+        <div className="text-center">
+          <Tractor className="h-12 w-12 text-primary animate-pulse mx-auto mb-4" />
+          <p className="text-muted-foreground">Carregando...</p>
+        </div>
+      </div>
+    );
   }
 
+  // Calculate statistics
+  const totalAnimals = animals.length;
+  const activeAnimals = animals.filter(a => a.status === 'Ativo').length;
+  const totalFarms = farms.length;
+  const totalHectares = farms.reduce((sum, farm) => sum + Number(farm.size_hectares), 0);
+  
+  // Get alerts from last 7 days
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const recentAlerts = recentHealthRecords.filter(
+    record => new Date(record.data) >= sevenDaysAgo
+  ).length;
+
+  // Get last month's alerts for comparison
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const lastMonthAlerts = recentHealthRecords.filter(
+    record => new Date(record.data) >= thirtyDaysAgo && new Date(record.data) < sevenDaysAgo
+  ).length;
+  const alertTrend = lastMonthAlerts > 0 ? ((recentAlerts - lastMonthAlerts) / lastMonthAlerts * 100).toFixed(0) : "0";
+
+  // Animals by species
+  const speciesCount = animals.reduce((acc: any, animal) => {
+    acc[animal.especie] = (acc[animal.especie] || 0) + 1;
+    return acc;
+  }, {});
+
+  const speciesData = Object.entries(speciesCount).map(([name, value]) => ({
+    name,
+    value,
+  }));
+
+  const COLORS = ['hsl(var(--primary))', 'hsl(var(--secondary))', 'hsl(var(--accent))', 'hsl(var(--destructive))'];
+
   const stats = [
-    { label: "Total de Animais", value: totalAnimals.toString(), icon: Beef, trend: "+12%", color: "text-primary" },
-    { label: "Fazendas Ativas", value: farms.length.toString(), icon: MapPin, trend: "100%", color: "text-secondary" },
-    { label: "Produtividade", value: "94%", icon: TrendingUp, trend: "+5%", color: "text-accent" },
-    { label: "Alertas", value: totalAlerts.toString(), icon: AlertCircle, trend: "-2", color: "text-destructive" },
+    { 
+      label: "Total de Animais", 
+      value: totalAnimals.toString(), 
+      icon: Beef, 
+      subtext: `${activeAnimals} ativos`,
+      trend: totalAnimals > 0 ? "+100%" : "0%",
+      trendUp: true,
+      color: "text-primary" 
+    },
+    { 
+      label: "Fazendas Ativas", 
+      value: totalFarms.toString(), 
+      icon: MapPin, 
+      subtext: `${totalHectares.toFixed(1)} hectares`,
+      trend: "100%",
+      trendUp: true,
+      color: "text-secondary" 
+    },
+    { 
+      label: "Registros de Saúde", 
+      value: recentHealthRecords.length.toString(), 
+      icon: Activity, 
+      subtext: "últimos 30 dias",
+      trend: recentHealthRecords.length > 0 ? "+100%" : "0%",
+      trendUp: true,
+      color: "text-accent" 
+    },
+    { 
+      label: "Alertas Recentes", 
+      value: recentAlerts.toString(), 
+      icon: AlertCircle, 
+      subtext: "últimos 7 dias",
+      trend: `${alertTrend}%`,
+      trendUp: Number(alertTrend) <= 0,
+      color: "text-destructive" 
+    },
   ];
 
   const modules = [
@@ -160,6 +262,15 @@ const Dashboard = () => {
               </div>
             </div>
             <div className="flex items-center gap-4">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={loadDashboardData}
+                disabled={loading}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                Atualizar
+              </Button>
               <span className="text-sm text-muted-foreground hidden sm:block">{user?.email}</span>
               <Button variant="outline" size="sm" onClick={handleSignOut}>
                 <LogOut className="h-4 w-4 mr-2" />
@@ -170,53 +281,210 @@ const Dashboard = () => {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8">
+      <main className="container mx-auto px-4 py-8 space-y-8">
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {stats.map((stat) => {
             const Icon = stat.icon;
+            const TrendIcon = stat.trendUp ? ArrowUpRight : ArrowDownRight;
             return (
-              <Card key={stat.label} className="p-6 hover:shadow-lg transition-shadow">
-                <div className="flex items-start justify-between">
+              <Card key={stat.label} className="hover:shadow-lg transition-all duration-300">
+                <CardContent className="p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className={`p-3 rounded-lg ${stat.color} bg-opacity-10`}>
+                      <Icon className={`h-6 w-6 ${stat.color}`} />
+                    </div>
+                    <Badge variant={stat.trendUp ? "default" : "destructive"} className="gap-1">
+                      <TrendIcon className="h-3 w-3" />
+                      {stat.trend}
+                    </Badge>
+                  </div>
                   <div>
-                    <p className="text-sm text-muted-foreground mb-2">{stat.label}</p>
+                    <p className="text-sm text-muted-foreground mb-1">{stat.label}</p>
                     <h3 className="text-3xl font-bold text-foreground mb-1">{stat.value}</h3>
-                    <p className={`text-sm font-medium ${stat.color}`}>{stat.trend}</p>
+                    <p className="text-xs text-muted-foreground">{stat.subtext}</p>
                   </div>
-                  <div className={`p-3 rounded-lg ${stat.color} bg-opacity-10`}>
-                    <Icon className="h-6 w-6" />
-                  </div>
-                </div>
+                </CardContent>
               </Card>
             );
           })}
         </div>
 
-        {/* Farms Overview */}
-        <Card className="p-6 mb-8">
-          <h2 className="text-xl font-bold text-foreground mb-4 flex items-center gap-2">
-            <MapPin className="h-5 w-5 text-primary" />
-            Suas Fazendas
-          </h2>
-          {farms.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {farms.map((farm) => (
-                <div 
-                  key={farm.id}
-                  className="p-4 rounded-lg border border-border bg-gradient-to-br from-card to-muted/20 hover:shadow-md transition-shadow"
-                >
-                  <h3 className="font-semibold text-foreground mb-2">{farm.name}</h3>
-                  <div className="flex justify-between text-sm text-muted-foreground">
-                    <span>Área: {farm.size_hectares} ha</span>
-                    <span>{farm.animals} animais</span>
+        {/* Main Content Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left Column - 2 columns wide */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Farms Overview */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <MapPin className="h-5 w-5 text-primary" />
+                  Suas Fazendas
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {farms.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {farms.map((farm) => {
+                      const farmAnimals = animals.filter(a => a.farm_id === farm.id);
+                      const farmAnimalsCount = farmAnimals.length;
+                      
+                      return (
+                        <Link key={farm.id} to="/mapping">
+                          <div className="p-4 rounded-lg border border-border bg-gradient-to-br from-card to-muted/20 hover:shadow-md transition-all duration-300 hover:-translate-y-1 cursor-pointer">
+                            <div className="flex items-start justify-between mb-2">
+                              <h3 className="font-semibold text-foreground">{farm.name}</h3>
+                              {farmAnimalsCount > 0 && (
+                                <Badge variant="default" className="ml-2">
+                                  {farmAnimalsCount} {farmAnimalsCount === 1 ? 'animal' : 'animais'}
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="space-y-2">
+                              <div className="flex justify-between text-sm text-muted-foreground">
+                                <span>Área:</span>
+                                <span className="font-medium">{Number(farm.size_hectares).toFixed(1)} ha</span>
+                              </div>
+                              <div className="flex justify-between text-sm">
+                                <span className="text-muted-foreground">Animais:</span>
+                                <span className={`font-medium ${farmAnimalsCount > 0 ? 'text-primary' : 'text-muted-foreground'}`}>
+                                  {farmAnimalsCount}
+                                </span>
+                              </div>
+                              {farmAnimals.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                  {Object.entries(
+                                    farmAnimals.reduce((acc: any, animal) => {
+                                      acc[animal.especie] = (acc[animal.especie] || 0) + 1;
+                                      return acc;
+                                    }, {})
+                                  ).map(([especie, count]) => (
+                                    <Badge key={especie} variant="outline" className="text-xs">
+                                      {especie}: {String(count)}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            {farm.notes && (
+                              <p className="text-xs text-muted-foreground mt-3 line-clamp-2 pt-2 border-t border-border/50">
+                                {farm.notes}
+                              </p>
+                            )}
+                          </div>
+                        </Link>
+                      );
+                    })}
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-muted-foreground text-center py-4">Nenhuma fazenda cadastrada ainda</p>
-          )}
-        </Card>
+                ) : (
+                  <div className="text-center py-8">
+                    <MapPin className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-50" />
+                    <p className="text-muted-foreground mb-4">Nenhuma fazenda cadastrada ainda</p>
+                    <Link to="/mapping">
+                      <Button>Adicionar Fazenda</Button>
+                    </Link>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Animals by Species Chart */}
+            {speciesData.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Beef className="h-5 w-5 text-primary" />
+                    Distribuição por Espécie
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={speciesData}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                          outerRadius={80}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {speciesData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    {speciesData.map((species: any, index) => (
+                      <div key={species.name} className="flex items-center gap-2">
+                        <div 
+                          className="w-3 h-3 rounded-full" 
+                          style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                        />
+                        <span className="text-sm text-muted-foreground">
+                          {species.name}: <span className="font-medium text-foreground">{species.value}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Right Column - Recent Activities */}
+          <div>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Activity className="h-5 w-5 text-primary" />
+                  Atividades Recentes
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {recentHealthRecords.length > 0 ? (
+                  <div className="space-y-4">
+                    {recentHealthRecords.slice(0, 8).map((record) => (
+                      <div key={record.id} className="flex items-start gap-3 pb-4 border-b border-border last:border-0">
+                        <div className="p-2 rounded-lg bg-primary/10">
+                          <Activity className="h-4 w-4 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground mb-1">{record.tipo}</p>
+                          {record.animals && (
+                            <p className="text-xs text-muted-foreground mb-1">
+                              {record.animals.especie} - Brinco: {record.animals.brinco}
+                            </p>
+                          )}
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Calendar className="h-3 w-3" />
+                            {new Date(record.data).toLocaleDateString('pt-BR')}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <Link to="/health">
+                      <Button variant="outline" className="w-full">Ver Todos</Button>
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Activity className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-50" />
+                    <p className="text-muted-foreground mb-4">Nenhum registro de saúde ainda</p>
+                    <Link to="/health">
+                      <Button>Adicionar Registro</Button>
+                    </Link>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
 
         {/* Modules Grid */}
         <div>

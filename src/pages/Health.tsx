@@ -32,27 +32,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import type { HealthRecord as HealthRecordType, Animal } from "@/lib/database.types";
 
-interface HealthRecord {
-  id: string;
-  animal_id: string;
+interface HealthRecordWithAnimal extends HealthRecordType {
   animalBrinco?: string;
-  tipo: string;
-  descricao?: string;
-  data: string;
-  veterinario?: string;
-  custo?: number;
-}
-
-interface Animal {
-  id: string;
-  brinco: string;
 }
 
 const Health = () => {
   const [user, setUser] = useState<any>(null);
-  const [records, setRecords] = useState<HealthRecord[]>([]);
-  const [animals, setAnimals] = useState<Animal[]>([]);
+  const [records, setRecords] = useState<HealthRecordWithAnimal[]>([]);
+  const [animals, setAnimals] = useState<Pick<Animal, 'id' | 'brinco'>[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState({
     animal_id: "",
@@ -115,10 +104,13 @@ const Health = () => {
       return;
     }
 
-    const formattedRecords = data?.map(record => ({
-      ...record,
-      animalBrinco: (record.animals as any)?.brinco || 'N/A'
-    })) || [];
+    const formattedRecords = data?.map(record => {
+      const { animals, ...rest } = record as any;
+      return {
+        ...rest,
+        animalBrinco: animals?.brinco || 'N/A'
+      } as HealthRecordWithAnimal;
+    }) || [];
 
     setRecords(formattedRecords);
   };

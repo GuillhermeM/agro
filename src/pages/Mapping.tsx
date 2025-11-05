@@ -12,6 +12,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "leaflet-draw/dist/leaflet.draw.css";
 import "leaflet-draw";
+import type { Farm } from "@/lib/database.types";
 
 // Fix Leaflet default icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -23,8 +24,8 @@ L.Icon.Default.mergeOptions({
 
 const Mapping = () => {
   const [user, setUser] = useState<any>(null);
-  const [farms, setFarms] = useState<any[]>([]);
-  const [selectedFarm, setSelectedFarm] = useState<any>(null);
+  const [farms, setFarms] = useState<Farm[]>([]);
+  const [selectedFarm, setSelectedFarm] = useState<Farm | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [drawnShape, setDrawnShape] = useState<any>(null);
   const [isNewFarm, setIsNewFarm] = useState(false);
@@ -120,6 +121,19 @@ const Mapping = () => {
 
     drawnItemsRef.current.addTo(map);
 
+    // Customizar o Leaflet Draw para exigir mínimo de 4 pontos
+    const originalPolygonHandler = (L.Draw as any).Polygon.prototype.addVertex;
+    (L.Draw as any).Polygon.prototype.addVertex = function(latlng: L.LatLng) {
+      originalPolygonHandler.call(this, latlng);
+      
+      // Mostrar tooltip informativo
+      if (this._markers && this._markers.length > 0 && this._markers.length < 4) {
+        this._tooltip.updateContent({
+          text: `Clique para adicionar pontos. Mínimo: 4 pontos (${this._markers.length}/4)`
+        });
+      }
+    };
+
     const DrawControl = (L.Control as any).Draw;
     const drawControl = new DrawControl({
       edit: {
@@ -129,11 +143,32 @@ const Mapping = () => {
         polygon: {
           allowIntersection: false,
           showArea: true,
-          shapeOptions: {
-            color: "#16a34a",
-            fillColor: "#16a34a",
-            fillOpacity: 0.3,
+          drawError: {
+            color: '#e74c3c',
+            message: '<strong>Erro!</strong> As bordas não podem se cruzar!'
           },
+          icon: new L.DivIcon({
+            iconSize: new L.Point(8, 8),
+            className: 'leaflet-div-icon leaflet-editing-icon'
+          }),
+          touchIcon: new L.DivIcon({
+            iconSize: new L.Point(20, 20),
+            className: 'leaflet-div-icon leaflet-editing-icon leaflet-touch-icon'
+          }),
+          guidelineDistance: 20,
+          maxGuideLineLength: 4000,
+          shapeOptions: {
+            stroke: true,
+            color: '#16a34a',
+            weight: 4,
+            opacity: 0.5,
+            fill: true,
+            fillColor: '#16a34a',
+            fillOpacity: 0.3,
+            clickable: true
+          },
+          metric: true,
+          repeatMode: false
         },
         polyline: false,
         rectangle: {
@@ -155,10 +190,29 @@ const Mapping = () => {
 
     map.on(DrawEvent.CREATED, (event: any) => {
       const layer = event.layer;
+      
+      // Validar se o polígono tem pelo menos 4 pontos
+      if (layer instanceof L.Polygon) {
+        const coordinates = layer.getLatLngs()[0] as L.LatLng[];
+        console.log('Polígono criado com', coordinates.length, 'pontos');
+        
+        if (coordinates.length < 4) {
+          toast({
+            title: "Polígono inválido",
+            description: "O polígono precisa ter pelo menos 4 pontos. Tente novamente.",
+            variant: "destructive",
+          });
+          // Remover a camada inválida
+          map.removeLayer(layer);
+          return;
+        }
+      }
+      
       drawnItemsRef.current.clearLayers();
       drawnItemsRef.current.addLayer(layer);
       const geoJSON = layer.toGeoJSON();
       setDrawnShape(geoJSON);
+      setIsNewFarm(true);
       setDialogOpen(true);
     });
 
