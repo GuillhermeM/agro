@@ -18,38 +18,16 @@ const Auth = () => {
 
   useEffect(() => {
     // Check if user is already logged in
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
-        // Check if user has selected a plan
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("plan_type")
-          .eq("id", session.user.id)
-          .single();
-
-        if (profile?.plan_type) {
-          navigate("/dashboard");
-        } else {
-          navigate("/plan-selection");
-        }
+        navigate("/dashboard");
       }
     });
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session) {
-        // Check if user has selected a plan
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("plan_type")
-          .eq("id", session.user.id)
-          .single();
-
-        if (profile?.plan_type) {
-          navigate("/dashboard");
-        } else {
-          navigate("/plan-selection");
-        }
+        navigate("/dashboard");
       }
     });
 

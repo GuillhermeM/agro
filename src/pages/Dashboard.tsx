@@ -18,13 +18,9 @@ import { Link } from "react-router-dom";
 
 const Dashboard = () => {
   const [user, setUser] = useState<any>(null);
-  const [planType, setPlanType] = useState<string>("");
-  const [stats, setStats] = useState({
-    totalAnimals: 0,
-    activeFarms: 0,
-    alerts: 0,
-  });
   const [farms, setFarms] = useState<any[]>([]);
+  const [totalAnimals, setTotalAnimals] = useState(0);
+  const [totalAlerts, setTotalAlerts] = useState(0);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -45,20 +41,7 @@ const Dashboard = () => {
       return;
     }
 
-    // Check if user has a plan
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("plan_type")
-      .eq("id", session.user.id)
-      .single();
-
-    if (!profile?.plan_type) {
-      navigate("/plan-selection");
-      return;
-    }
-
     setUser(session.user);
-    setPlanType(profile.plan_type);
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
@@ -71,35 +54,49 @@ const Dashboard = () => {
   };
 
   const loadDashboardData = async () => {
-    // Load animals count
-    const { data: animals } = await supabase
-      .from("animals")
-      .select("*", { count: "exact" })
-      .eq("user_id", user.id);
-
     // Load farms
     const { data: farmsData } = await supabase
-      .from("farms")
-      .select("*")
-      .eq("user_id", user.id);
-
-    // Load health records for alerts
-    const thirtyDaysFromNow = new Date();
-    thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+      .from('farms')
+      .select('*')
+      .eq('user_id', user.id);
     
-    const { data: upcomingVaccines } = await supabase
-      .from("health_records")
-      .select("*", { count: "exact" })
-      .eq("user_id", user.id)
-      .lte("proxima_aplicacao", thirtyDaysFromNow.toISOString().split('T')[0]);
+    if (farmsData) {
+      // Load animals count for each farm
+      const farmsWithAnimals = await Promise.all(
+        farmsData.map(async (farm) => {
+          const { count } = await supabase
+            .from('animals')
+            .select('*', { count: 'exact', head: true })
+            .eq('farm_id', farm.id);
+          
+          return {
+            ...farm,
+            animals: count || 0
+          };
+        })
+      );
+      setFarms(farmsWithAnimals);
+    }
 
-    setStats({
-      totalAnimals: animals?.length || 0,
-      activeFarms: farmsData?.length || 0,
-      alerts: upcomingVaccines?.length || 0,
-    });
+    // Load total animals
+    const { count: animalsCount } = await supabase
+      .from('animals')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id);
+    
+    setTotalAnimals(animalsCount || 0);
 
-    setFarms(farmsData || []);
+    // Load health alerts (records from last 7 days)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    const { count: alertsCount } = await supabase
+      .from('health_records')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .gte('data', sevenDaysAgo.toISOString());
+    
+    setTotalAlerts(alertsCount || 0);
   };
 
   const handleSignOut = async () => {
@@ -111,11 +108,11 @@ const Dashboard = () => {
     return null;
   }
 
-  const statsDisplay = [
-    { label: "Total de Animais", value: stats.totalAnimals.toString(), icon: Beef, trend: "", color: "text-primary" },
-    { label: "Fazendas Ativas", value: stats.activeFarms.toString(), icon: MapPin, trend: "", color: "text-secondary" },
-    { label: "Produtividade", value: "---", icon: TrendingUp, trend: "", color: "text-accent" },
-    { label: "Alertas", value: stats.alerts.toString(), icon: AlertCircle, trend: "", color: "text-destructive" },
+  const stats = [
+    { label: "Total de Animais", value: totalAnimals.toString(), icon: Beef, trend: "+12%", color: "text-primary" },
+    { label: "Fazendas Ativas", value: farms.length.toString(), icon: MapPin, trend: "100%", color: "text-secondary" },
+    { label: "Produtividade", value: "94%", icon: TrendingUp, trend: "+5%", color: "text-accent" },
+    { label: "Alertas", value: totalAlerts.toString(), icon: AlertCircle, trend: "-2", color: "text-destructive" },
   ];
 
   const modules = [
@@ -161,13 +158,6 @@ const Dashboard = () => {
                 <h1 className="text-2xl font-bold text-foreground">AgroGestão</h1>
                 <p className="text-sm text-muted-foreground">Sistema de Gestão Agropecuária</p>
               </div>
-              {planType && (
-                <Link to="/plan-selection" className="ml-4">
-                  <span className="text-xs px-3 py-1 rounded-full bg-primary/10 text-primary font-medium hover:bg-primary/20 transition-colors cursor-pointer">
-                    Plano: {planType.charAt(0).toUpperCase() + planType.slice(1)}
-                  </span>
-                </Link>
-              )}
             </div>
             <div className="flex items-center gap-4">
               <span className="text-sm text-muted-foreground hidden sm:block">{user?.email}</span>
@@ -183,7 +173,7 @@ const Dashboard = () => {
       <main className="container mx-auto px-4 py-8">
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {statsDisplay.map((stat) => {
+          {stats.map((stat) => {
             const Icon = stat.icon;
             return (
               <Card key={stat.label} className="p-6 hover:shadow-lg transition-shadow">
@@ -208,9 +198,9 @@ const Dashboard = () => {
             <MapPin className="h-5 w-5 text-primary" />
             Suas Fazendas
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {farms.length > 0 ? (
-              farms.map((farm) => (
+          {farms.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {farms.map((farm) => (
                 <div 
                   key={farm.id}
                   className="p-4 rounded-lg border border-border bg-gradient-to-br from-card to-muted/20 hover:shadow-md transition-shadow"
@@ -218,21 +208,14 @@ const Dashboard = () => {
                   <h3 className="font-semibold text-foreground mb-2">{farm.name}</h3>
                   <div className="flex justify-between text-sm text-muted-foreground">
                     <span>Área: {farm.size_hectares} ha</span>
-                    <span>{farm.cattle_count} animais</span>
+                    <span>{farm.animals} animais</span>
                   </div>
                 </div>
-              ))
-            ) : (
-              <div className="col-span-2 text-center py-8">
-                <p className="text-muted-foreground">Nenhuma fazenda cadastrada ainda</p>
-                <Link to="/mapping">
-                  <Button variant="outline" className="mt-4">
-                    Cadastrar Fazenda
-                  </Button>
-                </Link>
-              </div>
-            )}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-center py-4">Nenhuma fazenda cadastrada ainda</p>
+          )}
         </Card>
 
         {/* Modules Grid */}

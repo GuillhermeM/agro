@@ -11,7 +11,6 @@ import Livestock from "./pages/Livestock";
 import Health from "./pages/Health";
 import Users from "./pages/Users";
 import Auth from "./pages/Auth";
-import PlanSelection from "./pages/PlanSelection";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -31,7 +30,6 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
-          <Route path="/plan-selection" element={<PlanSelection />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/mapping" element={<Mapping />} />
           <Route path="/livestock" element={<Livestock />} />

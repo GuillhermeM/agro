@@ -5,20 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import FarmForm from "@/components/FarmForm";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { MapPin, LogOut, ArrowLeft } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { MapPin, LogOut, ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "leaflet-draw/dist/leaflet.draw.css";
-
-// Fix leaflet-draw bug - must be done before importing leaflet-draw
-(L as any).GeometryUtil = L.GeometryUtil || {};
-(L as any).GeometryUtil.readableArea = function (area: number, isMetric?: boolean, precision?: number) {
-  const areaStr = (isMetric ? area : area * 0.836127) + '';
-  return areaStr;
-};
-
 import "leaflet-draw";
 
 // Fix Leaflet default icon issue
@@ -31,9 +23,11 @@ L.Icon.Default.mergeOptions({
 
 const Mapping = () => {
   const [user, setUser] = useState<any>(null);
-  const [farm, setFarm] = useState<any>(null);
+  const [farms, setFarms] = useState<any[]>([]);
+  const [selectedFarm, setSelectedFarm] = useState<any>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [drawnShape, setDrawnShape] = useState<any>(null);
+  const [isNewFarm, setIsNewFarm] = useState(false);
   const mapRef = useRef<L.Map | null>(null);
   const drawnItemsRef = useRef<L.FeatureGroup>(new L.FeatureGroup());
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -64,18 +58,6 @@ const Mapping = () => {
       return;
     }
 
-    // Check if user has a plan
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("plan_type")
-      .eq("id", session.user.id)
-      .single();
-
-    if (!profile?.plan_type) {
-      navigate("/plan-selection");
-      return;
-    }
-
     setUser(session.user);
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -93,16 +75,17 @@ const Mapping = () => {
       .from("farms")
       .select("*")
       .eq("user_id", user.id)
-      .maybeSingle();
+      .order("created_at", { ascending: false });
 
     if (error) {
-      console.error("Error loading farm:", error);
+      console.error("Error loading farms:", error);
       return;
     }
 
-    if (data) {
-      setFarm(data);
-      displayFarmOnMap(data.coordinates);
+    if (data && data.length > 0) {
+      setFarms(data);
+      setSelectedFarm(data[0]);
+      displayAllFarmsOnMap(data, data[0].id);
     }
   };
 
@@ -175,8 +158,6 @@ const Mapping = () => {
       drawnItemsRef.current.clearLayers();
       drawnItemsRef.current.addLayer(layer);
       const geoJSON = layer.toGeoJSON();
-      console.log("✅ Shape desenhado:", geoJSON);
-      console.log("✅ Definindo drawnShape e abrindo dialog...");
       setDrawnShape(geoJSON);
       setDialogOpen(true);
     });
@@ -189,6 +170,40 @@ const Mapping = () => {
     });
 
     mapRef.current = map;
+  };
+
+  const displayAllFarmsOnMap = (farmsData: any[], selectedFarmId?: string) => {
+    if (!mapRef.current || !farmsData || farmsData.length === 0) return;
+
+    drawnItemsRef.current.clearLayers();
+    
+    farmsData.forEach((farm) => {
+      const isSelected = farm.id === selectedFarmId;
+      const layer = L.geoJSON(farm.coordinates, {
+        style: {
+          color: isSelected ? "#16a34a" : "#3b82f6",
+          fillColor: isSelected ? "#16a34a" : "#3b82f6",
+          fillOpacity: isSelected ? 0.4 : 0.2,
+          weight: isSelected ? 3 : 2,
+        }
+      });
+      
+      layer.bindPopup(`
+        <div>
+          <strong>${farm.name}</strong><br/>
+          ${farm.size_hectares} hectares<br/>
+          ${farm.cattle_count} cabeças de gado
+        </div>
+      `);
+      
+      layer.eachLayer((l) => {
+        drawnItemsRef.current.addLayer(l);
+      });
+    });
+
+    if (drawnItemsRef.current.getLayers().length > 0) {
+      mapRef.current.fitBounds(drawnItemsRef.current.getBounds());
+    }
   };
 
   const displayFarmOnMap = (coordinates: any) => {
@@ -210,6 +225,41 @@ const Mapping = () => {
 
   const handleFormSuccess = () => {
     setDialogOpen(false);
+    setIsNewFarm(false);
+    loadFarmData();
+  };
+
+  const handleSelectFarm = (farm: any) => {
+    setSelectedFarm(farm);
+    displayAllFarmsOnMap(farms, farm.id);
+  };
+
+  const handleNewFarm = () => {
+    setIsNewFarm(true);
+    setSelectedFarm(null);
+    drawnItemsRef.current.clearLayers();
+    setDialogOpen(false);
+  };
+
+  const handleDeleteFarm = async (farmId: string) => {
+    const { error } = await supabase
+      .from("farms")
+      .delete()
+      .eq("id", farmId);
+
+    if (error) {
+      toast({
+        title: "Erro",
+        description: "Erro ao deletar fazenda",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({
+      title: "Fazenda deletada!",
+      description: "A fazenda foi removida com sucesso.",
+    });
     loadFarmData();
   };
 
@@ -232,6 +282,27 @@ const Mapping = () => {
             </div>
             <div className="flex items-center gap-4">
               <span className="text-sm text-muted-foreground hidden sm:block">{user.email}</span>
+              <Button variant="outline" size="sm" onClick={handleNewFarm}>
+                <Plus className="h-4 w-4 mr-2" />
+                Nova Fazenda
+              </Button>
+              {selectedFarm && (
+                <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" size="sm">Editar Informações</Button>
+                  </DialogTrigger>
+                  <DialogContent className="z-[9999]">
+                    <DialogHeader>
+                      <DialogTitle>Editar Fazenda</DialogTitle>
+                    </DialogHeader>
+                    <FarmForm
+                      farmData={selectedFarm}
+                      coordinates={drawnShape || selectedFarm.coordinates}
+                      onSuccess={handleFormSuccess}
+                    />
+                  </DialogContent>
+                </Dialog>
+              )}
               <Link to="/dashboard">
                 <Button variant="ghost" size="sm">
                   <ArrowLeft className="h-4 w-4" />
@@ -250,67 +321,96 @@ const Mapping = () => {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Sidebar */}
           <Card className="p-4 lg:col-span-1 h-fit">
-            <h3 className="font-semibold text-foreground mb-4">Informações da Fazenda</h3>
-            {farm ? (
-              <div className="space-y-3">
-                <div>
-                  <p className="text-xs text-muted-foreground">Nome</p>
-                  <p className="font-medium text-foreground">{farm.name}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Tamanho</p>
-                  <p className="font-medium text-foreground">{farm.size_hectares} hectares</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Quantidade de Gado</p>
-                  <p className="font-medium text-foreground">{farm.cattle_count} cabeças</p>
-                </div>
-                {farm.notes && (
-                  <div>
-                    <p className="text-xs text-muted-foreground">Observações</p>
-                    <p className="text-sm text-foreground">{farm.notes}</p>
+            <h3 className="font-semibold text-foreground mb-4">Fazendas Cadastradas</h3>
+            {farms.length > 0 ? (
+              <div className="space-y-2 mb-4">
+                {farms.map((farm) => (
+                  <div
+                    key={farm.id}
+                    className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                      selectedFarm?.id === farm.id
+                        ? "bg-primary/10 border-primary"
+                        : "bg-card hover:bg-muted/20"
+                    }`}
+                    onClick={() => handleSelectFarm(farm)}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <p className="font-medium text-foreground">{farm.name}</p>
+                        <p className="text-xs text-muted-foreground">{farm.size_hectares} ha</p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteFarm(farm.id);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
                   </div>
-                )}
+                ))}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">
-                Use as ferramentas no mapa para desenhar sua fazenda
+              <p className="text-sm text-muted-foreground mb-4">
+                Nenhuma fazenda cadastrada
               </p>
+            )}
+            
+            {selectedFarm && (
+              <>
+                <div className="border-t pt-4 space-y-3">
+                  <h4 className="font-semibold text-foreground">Detalhes</h4>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Nome</p>
+                    <p className="font-medium text-foreground">{selectedFarm.name}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Tamanho</p>
+                    <p className="font-medium text-foreground">{selectedFarm.size_hectares} hectares</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Quantidade de Gado</p>
+                    <p className="font-medium text-foreground">{selectedFarm.cattle_count} cabeças</p>
+                  </div>
+                  {selectedFarm.notes && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Observações</p>
+                      <p className="text-sm text-foreground">{selectedFarm.notes}</p>
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </Card>
 
           {/* Map */}
-          <div className="lg:col-span-3">
+          <div className="lg:col-span-3 relative">
             <Card className="p-0 overflow-hidden">
               <div 
                 ref={mapContainerRef} 
-                className="w-full h-[600px] rounded-lg"
+                className="w-full h-[600px] rounded-lg relative z-0"
               />
             </Card>
           </div>
         </div>
       </main>
 
-      {/* Dialog for creating/editing farm */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto z-[9999]">
-          <DialogHeader>
-            <DialogTitle>{farm ? "Editar Fazenda" : "Cadastrar Fazenda"}</DialogTitle>
-            <DialogDescription>
-              {farm ? "Atualize as informações da sua fazenda" : "Preencha os dados da fazenda desenhada no mapa"}
-            </DialogDescription>
-          </DialogHeader>
-          {drawnShape ? (
+      {(isNewFarm || !selectedFarm) && drawnShape && (
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogContent className="z-[9999]">
+            <DialogHeader>
+              <DialogTitle>Cadastrar Fazenda</DialogTitle>
+            </DialogHeader>
             <FarmForm
-              farmData={farm}
               coordinates={drawnShape}
               onSuccess={handleFormSuccess}
             />
-          ) : (
-            <p className="text-muted-foreground">Desenhe uma área no mapa primeiro...</p>
-          )}
-        </DialogContent>
-      </Dialog>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 };

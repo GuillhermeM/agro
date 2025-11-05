@@ -1,6 +1,4 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,7 +43,6 @@ interface User {
 }
 
 const Users = () => {
-  const [user, setUser] = useState<any>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedRole, setSelectedRole] = useState("all");
@@ -56,68 +53,11 @@ const Users = () => {
     funcao: "",
     fazenda: "",
   });
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    checkUser();
-  }, []);
-
-  useEffect(() => {
-    if (user) {
-      loadFarmMembers();
-    }
-  }, [user]);
-
-  const checkUser = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      navigate("/auth");
-      return;
-    }
-
-    // Check if user has a plan
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("plan_type")
-      .eq("id", session.user.id)
-      .single();
-
-    if (!profile?.plan_type) {
-      navigate("/plan-selection");
-      return;
-    }
-
-    setUser(session.user);
-  };
-
-  const loadFarmMembers = async () => {
-    const { data, error } = await supabase
-      .from("farm_members")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error("Error loading farm members:", error);
-      toast.error("Erro ao carregar membros");
-      return;
-    }
-
-    setUsers(data.map(m => ({
-      id: m.id,
-      nome: m.nome,
-      email: m.email,
-      funcao: m.funcao,
-      fazenda: m.fazenda,
-      status: m.status,
-      dataCadastro: m.created_at.split('T')[0],
-    })));
-  };
 
   const stats = [
-    { label: "Total de Membros", value: users.length.toString(), icon: UsersIcon },
-    { label: "Ativos", value: users.filter(u => u.status === "Ativo").length.toString(), icon: UserCheck },
-    { label: "Administradores", value: users.filter(u => u.funcao === "Administrador").length.toString(), icon: Shield },
+    { label: "Total de Usuários", value: users.length, icon: UsersIcon },
+    { label: "Ativos", value: users.filter(u => u.status === "Ativo").length, icon: UserCheck },
+    { label: "Administradores", value: users.filter(u => u.funcao === "Administrador").length, icon: Shield },
   ];
 
   const roleColors: Record<string, string> = {
@@ -134,51 +74,27 @@ const Users = () => {
     return matchesSearch && matchesRole;
   });
 
-  const handleAddUser = async (e: React.FormEvent) => {
+  const handleAddUser = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    const { error } = await supabase
-      .from("farm_members")
-      .insert({
-        user_id: user.id,
-        nome: formData.nome,
-        email: formData.email,
-        funcao: formData.funcao,
-        fazenda: formData.fazenda,
-        status: "Ativo",
-      });
-
-    if (error) {
-      console.error("Error adding farm member:", error);
-      toast.error("Erro ao cadastrar membro");
-      return;
-    }
-
+    const newUser: User = {
+      id: Date.now().toString(),
+      nome: formData.nome,
+      email: formData.email,
+      funcao: formData.funcao,
+      fazenda: formData.fazenda,
+      status: "Ativo",
+      dataCadastro: new Date().toISOString().split('T')[0],
+    };
+    setUsers([...users, newUser]);
     setFormData({ nome: "", email: "", funcao: "", fazenda: "" });
     setIsDialogOpen(false);
-    toast.success("Membro cadastrado com sucesso!");
-    loadFarmMembers();
+    toast.success("Usuário cadastrado com sucesso!");
   };
 
-  const handleDeleteUser = async (id: string) => {
-    const { error } = await supabase
-      .from("farm_members")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      console.error("Error deleting farm member:", error);
-      toast.error("Erro ao remover membro");
-      return;
-    }
-
-    toast.success("Membro removido com sucesso!");
-    loadFarmMembers();
+  const handleDeleteUser = (id: string) => {
+    setUsers(users.filter(u => u.id !== id));
+    toast.success("Usuário removido com sucesso!");
   };
-
-  if (!user) {
-    return null;
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background">

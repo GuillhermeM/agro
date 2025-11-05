@@ -33,27 +33,34 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 
-interface VaccineRecord {
+interface HealthRecord {
   id: string;
-  animalBrinco: string;
-  vacina: string;
+  animal_id: string;
+  animalBrinco?: string;
+  tipo: string;
+  descricao?: string;
   data: string;
-  proximaAplicacao: string;
-  veterinario: string;
-  observacoes: string;
+  veterinario?: string;
+  custo?: number;
+}
+
+interface Animal {
+  id: string;
+  brinco: string;
 }
 
 const Health = () => {
   const [user, setUser] = useState<any>(null);
-  const [records, setRecords] = useState<VaccineRecord[]>([]);
+  const [records, setRecords] = useState<HealthRecord[]>([]);
+  const [animals, setAnimals] = useState<Animal[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState({
-    animalBrinco: "",
-    vacina: "",
+    animal_id: "",
+    tipo: "",
+    descricao: "",
     data: "",
-    proximaAplicacao: "",
     veterinario: "",
-    observacoes: "",
+    custo: "",
   });
   const navigate = useNavigate();
 
@@ -63,96 +70,94 @@ const Health = () => {
 
   useEffect(() => {
     if (user) {
-      loadHealthRecords();
+      loadAnimals();
+      loadRecords();
     }
   }, [user]);
 
   const checkUser = async () => {
     const { data: { session } } = await supabase.auth.getSession();
+    
     if (!session) {
       navigate("/auth");
-      return;
-    }
-
-    // Check if user has a plan
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("plan_type")
-      .eq("id", session.user.id)
-      .single();
-
-    if (!profile?.plan_type) {
-      navigate("/plan-selection");
       return;
     }
 
     setUser(session.user);
   };
 
-  const loadHealthRecords = async () => {
+  const loadAnimals = async () => {
     const { data, error } = await supabase
-      .from("health_records")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("data", { ascending: false });
+      .from('animals')
+      .select('id, brinco')
+      .eq('user_id', user.id);
 
     if (error) {
-      console.error("Error loading health records:", error);
+      console.error("Erro ao carregar animais:", error);
+      return;
+    }
+
+    setAnimals(data || []);
+  };
+
+  const loadRecords = async () => {
+    const { data, error } = await supabase
+      .from('health_records')
+      .select(`
+        *,
+        animals (brinco)
+      `)
+      .eq('user_id', user.id)
+      .order('data', { ascending: false });
+
+    if (error) {
       toast.error("Erro ao carregar registros");
       return;
     }
 
-    setRecords(data.map(r => ({
-      id: r.id,
-      animalBrinco: r.animal_brinco,
-      vacina: r.vacina,
-      data: r.data,
-      proximaAplicacao: r.proxima_aplicacao,
-      veterinario: r.veterinario,
-      observacoes: r.observacoes || "",
-    })));
+    const formattedRecords = data?.map(record => ({
+      ...record,
+      animalBrinco: (record.animals as any)?.brinco || 'N/A'
+    })) || [];
+
+    setRecords(formattedRecords);
   };
 
-  const upcomingVaccines = records
-    .filter(r => new Date(r.proximaAplicacao) <= new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))
-    .sort((a, b) => new Date(a.proximaAplicacao).getTime() - new Date(b.proximaAplicacao).getTime());
-
   const stats = [
-    { label: "Vacinas Aplicadas", value: records.length.toString(), icon: Syringe, color: "text-primary" },
-    { label: "Próximas 30 dias", value: upcomingVaccines.length.toString(), icon: Calendar, color: "text-secondary" },
-    { label: "Alertas Ativos", value: upcomingVaccines.filter(v => new Date(v.proximaAplicacao) < new Date()).length.toString(), icon: Bell, color: "text-destructive" },
+    { label: "Registros de Saúde", value: records.length, icon: Syringe, color: "text-primary" },
+    { label: "Animais Monitorados", value: animals.length, icon: Calendar, color: "text-secondary" },
+    { label: "Este Mês", value: records.filter(r => {
+      const recordDate = new Date(r.data);
+      const now = new Date();
+      return recordDate.getMonth() === now.getMonth() && recordDate.getFullYear() === now.getFullYear();
+    }).length, icon: Bell, color: "text-destructive" },
   ];
 
   const handleAddRecord = async (e: React.FormEvent) => {
     e.preventDefault();
     
     const { error } = await supabase
-      .from("health_records")
+      .from('health_records')
       .insert({
         user_id: user.id,
-        animal_brinco: formData.animalBrinco,
-        vacina: formData.vacina,
+        animal_id: formData.animal_id,
+        tipo: formData.tipo,
+        descricao: formData.descricao || null,
         data: formData.data,
-        proxima_aplicacao: formData.proximaAplicacao,
-        veterinario: formData.veterinario,
-        observacoes: formData.observacoes,
+        veterinario: formData.veterinario || null,
+        custo: formData.custo ? parseFloat(formData.custo) : null,
       });
 
     if (error) {
-      console.error("Error adding health record:", error);
-      toast.error("Erro ao adicionar registro");
+      toast.error("Erro ao cadastrar registro");
       return;
     }
 
-    setFormData({ animalBrinco: "", vacina: "", data: "", proximaAplicacao: "", veterinario: "", observacoes: "" });
+    setFormData({ animal_id: "", tipo: "", descricao: "", data: "", veterinario: "", custo: "" });
     setIsDialogOpen(false);
-    toast.success("Registro de vacina adicionado!");
-    loadHealthRecords();
+    toast.success("Registro de saúde adicionado!");
+    loadRecords();
   };
-
-  if (!user) {
-    return null;
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background">
@@ -199,20 +204,20 @@ const Health = () => {
         </div>
 
         {/* Upcoming Vaccines Alert */}
-        {upcomingVaccines.length > 0 && (
+        {records.length > 0 && (
           <Card className="p-6 mb-8 border-secondary bg-secondary/5">
             <div className="flex items-start gap-3">
               <Bell className="h-5 w-5 text-secondary mt-1" />
               <div className="flex-1">
-                <h3 className="font-semibold text-foreground mb-2">Vacinas Próximas</h3>
+                <h3 className="font-semibold text-foreground mb-2">Registros Recentes</h3>
                 <div className="space-y-2">
-                  {upcomingVaccines.map((vaccine) => (
-                    <div key={vaccine.id} className="text-sm text-muted-foreground">
-                      <span className="font-medium text-foreground">{vaccine.animalBrinco}</span>
+                  {records.slice(0, 3).map((record) => (
+                    <div key={record.id} className="text-sm text-muted-foreground">
+                      <span className="font-medium text-foreground">{record.animalBrinco}</span>
                       {" - "}
-                      {vaccine.vacina}
+                      {record.tipo}
                       {" em "}
-                      {new Date(vaccine.proximaAplicacao).toLocaleDateString('pt-BR')}
+                      {new Date(record.data).toLocaleDateString('pt-BR')}
                     </div>
                   ))}
                 </div>
@@ -228,54 +233,70 @@ const Health = () => {
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold text-foreground flex items-center gap-2">
                   <ClipboardCheck className="h-5 w-5 text-primary" />
-                  Histórico de Vacinação
+                  Histórico de Saúde Animal
                 </h2>
                 <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                   <DialogTrigger asChild>
                     <Button variant="hero" size="sm">
                       <Plus className="h-4 w-4" />
-                      Nova Vacina
+                      Novo Registro
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
-                      <DialogTitle>Registrar Vacinação</DialogTitle>
+                      <DialogTitle>Registrar Evento de Saúde</DialogTitle>
                       <DialogDescription>
-                        Preencha os dados da aplicação da vacina
+                        Registre vacinas, tratamentos ou outros eventos de saúde animal
                       </DialogDescription>
                     </DialogHeader>
                     <form onSubmit={handleAddRecord} className="space-y-4">
                       <div>
-                        <Label htmlFor="animalBrinco">Animal (Brinco)</Label>
-                        <Input
-                          id="animalBrinco"
-                          required
-                          placeholder="Ex: BV-001"
-                          value={formData.animalBrinco}
-                          onChange={(e) => setFormData({ ...formData, animalBrinco: e.target.value })}
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="vacina">Vacina</Label>
+                        <Label htmlFor="animal_id">Animal</Label>
                         <Select
-                          value={formData.vacina}
-                          onValueChange={(value) => setFormData({ ...formData, vacina: value })}
+                          value={formData.animal_id}
+                          onValueChange={(value) => setFormData({ ...formData, animal_id: value })}
                         >
                           <SelectTrigger>
-                            <SelectValue placeholder="Selecione a vacina" />
+                            <SelectValue placeholder="Selecione o animal" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Febre Aftosa">Febre Aftosa</SelectItem>
-                            <SelectItem value="Brucelose">Brucelose</SelectItem>
-                            <SelectItem value="Raiva">Raiva</SelectItem>
-                            <SelectItem value="Peste Suína">Peste Suína</SelectItem>
-                            <SelectItem value="Newcastle">Newcastle (Aves)</SelectItem>
-                            <SelectItem value="Clostridioses">Clostridioses</SelectItem>
+                            {animals.map((animal) => (
+                              <SelectItem key={animal.id} value={animal.id}>
+                                {animal.brinco}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </div>
                       <div>
-                        <Label htmlFor="data">Data de Aplicação</Label>
+                        <Label htmlFor="tipo">Tipo de Evento</Label>
+                        <Select
+                          value={formData.tipo}
+                          onValueChange={(value) => setFormData({ ...formData, tipo: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione o tipo" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Vacina">Vacina</SelectItem>
+                            <SelectItem value="Tratamento">Tratamento</SelectItem>
+                            <SelectItem value="Exame">Exame</SelectItem>
+                            <SelectItem value="Cirurgia">Cirurgia</SelectItem>
+                            <SelectItem value="Medicação">Medicação</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label htmlFor="descricao">Descrição</Label>
+                        <Textarea
+                          id="descricao"
+                          placeholder="Detalhes sobre o procedimento..."
+                          value={formData.descricao}
+                          onChange={(e) => setFormData({ ...formData, descricao: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="data">Data</Label>
                         <Input
                           id="data"
                           type="date"
@@ -285,32 +306,23 @@ const Health = () => {
                         />
                       </div>
                       <div>
-                        <Label htmlFor="proximaAplicacao">Próxima Aplicação</Label>
-                        <Input
-                          id="proximaAplicacao"
-                          type="date"
-                          required
-                          value={formData.proximaAplicacao}
-                          onChange={(e) => setFormData({ ...formData, proximaAplicacao: e.target.value })}
-                        />
-                      </div>
-                      <div>
                         <Label htmlFor="veterinario">Veterinário Responsável</Label>
                         <Input
                           id="veterinario"
-                          required
                           placeholder="Nome do veterinário"
                           value={formData.veterinario}
                           onChange={(e) => setFormData({ ...formData, veterinario: e.target.value })}
                         />
                       </div>
                       <div>
-                        <Label htmlFor="observacoes">Observações</Label>
-                        <Textarea
-                          id="observacoes"
-                          placeholder="Detalhes sobre a aplicação..."
-                          value={formData.observacoes}
-                          onChange={(e) => setFormData({ ...formData, observacoes: e.target.value })}
+                        <Label htmlFor="custo">Custo (R$)</Label>
+                        <Input
+                          id="custo"
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={formData.custo}
+                          onChange={(e) => setFormData({ ...formData, custo: e.target.value })}
                         />
                       </div>
                       <div className="flex gap-2 pt-4">
@@ -327,24 +339,28 @@ const Health = () => {
               </div>
 
               <div className="space-y-4">
-                {records.map((record) => (
-                  <div key={record.id} className="p-4 border border-border rounded-lg hover:shadow-md transition-shadow">
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <h3 className="font-semibold text-foreground">{record.vacina}</h3>
-                        <p className="text-sm text-muted-foreground">Animal: {record.animalBrinco}</p>
+                {records.length > 0 ? (
+                  records.map((record) => (
+                    <div key={record.id} className="p-4 border border-border rounded-lg hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <h3 className="font-semibold text-foreground">{record.tipo}</h3>
+                          <p className="text-sm text-muted-foreground">Animal: {record.animalBrinco}</p>
+                        </div>
+                        <span className="text-xs px-2 py-1 rounded bg-primary/10 text-primary">
+                          {new Date(record.data).toLocaleDateString('pt-BR')}
+                        </span>
                       </div>
-                      <span className="text-xs px-2 py-1 rounded bg-primary/10 text-primary">
-                        {new Date(record.data).toLocaleDateString('pt-BR')}
-                      </span>
+                      <div className="text-sm text-muted-foreground space-y-1">
+                        {record.veterinario && <p>Veterinário: {record.veterinario}</p>}
+                        {record.custo && <p>Custo: R$ {record.custo.toFixed(2)}</p>}
+                        {record.descricao && <p className="italic">"{record.descricao}"</p>}
+                      </div>
                     </div>
-                    <div className="text-sm text-muted-foreground space-y-1">
-                      <p>Veterinário: {record.veterinario}</p>
-                      <p>Próxima dose: {new Date(record.proximaAplicacao).toLocaleDateString('pt-BR')}</p>
-                      {record.observacoes && <p className="italic">"{record.observacoes}"</p>}
-                    </div>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  <p className="text-center text-muted-foreground py-8">Nenhum registro de saúde ainda</p>
+                )}
               </div>
             </Card>
           </div>

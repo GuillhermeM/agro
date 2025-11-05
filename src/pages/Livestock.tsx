@@ -37,15 +37,15 @@ interface Animal {
   id: string;
   brinco: string;
   especie: string;
+  race?: string;
   lote: string;
   peso: number;
-  dataNascimento: string;
+  data_nascimento: string;
   status: string;
 }
 
 const Livestock = () => {
   const [user, setUser] = useState<any>(null);
-  const [planType, setPlanType] = useState<string>("");
   const [animals, setAnimals] = useState<Animal[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedSpecies, setSelectedSpecies] = useState("all");
@@ -53,6 +53,7 @@ const Livestock = () => {
   const [formData, setFormData] = useState({
     brinco: "",
     especie: "",
+    race: "",
     lote: "",
     peso: "",
     dataNascimento: "",
@@ -71,68 +72,34 @@ const Livestock = () => {
 
   const checkUser = async () => {
     const { data: { session } } = await supabase.auth.getSession();
+    
     if (!session) {
       navigate("/auth");
       return;
     }
 
-    // Check if user has a plan
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("plan_type")
-      .eq("id", session.user.id)
-      .single();
-
-    if (!profile?.plan_type) {
-      navigate("/plan-selection");
-      return;
-    }
-
     setUser(session.user);
-    setPlanType(profile.plan_type);
-  };
-
-  // Get available species based on plan
-  const getAvailableSpecies = () => {
-    const speciesMap: Record<string, string[]> = {
-      bovinos: ["Bovino"],
-      suinos: ["Suíno"],
-      equinos: ["Equino"],
-      aves: ["Ave"],
-      caprinos: ["Caprino", "Ovino"],
-      completo: ["Bovino", "Suíno", "Equino", "Ave", "Caprino", "Ovino"],
-    };
-    return speciesMap[planType] || [];
   };
 
   const loadAnimals = async () => {
     const { data, error } = await supabase
-      .from("animals")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
+      .from('animals')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
 
     if (error) {
-      console.error("Error loading animals:", error);
       toast.error("Erro ao carregar animais");
       return;
     }
 
-    setAnimals(data.map(a => ({
-      id: a.id,
-      brinco: a.brinco,
-      especie: a.especie,
-      lote: a.lote,
-      peso: Number(a.peso),
-      dataNascimento: a.data_nascimento,
-      status: a.status,
-    })));
+    setAnimals(data || []);
   };
 
   const stats = [
-    { label: "Total de Animais", value: animals.length.toString(), icon: Beef },
-    { label: "Peso Médio", value: animals.length > 0 ? `${(animals.reduce((sum, a) => sum + a.peso, 0) / animals.length).toFixed(1)} kg` : "0 kg", icon: Weight },
-    { label: "Lotes Ativos", value: new Set(animals.map(a => a.lote)).size.toString(), icon: TrendingUp },
+    { label: "Total de Animais", value: animals.length, icon: Beef },
+    { label: "Peso Médio", value: `${(animals.reduce((sum, a) => sum + a.peso, 0) / animals.length).toFixed(1)} kg`, icon: Weight },
+    { label: "Lotes Ativos", value: new Set(animals.map(a => a.lote)).size, icon: TrendingUp },
   ];
 
   const filteredAnimals = animals.filter(animal => {
@@ -146,11 +113,12 @@ const Livestock = () => {
     e.preventDefault();
     
     const { error } = await supabase
-      .from("animals")
+      .from('animals')
       .insert({
         user_id: user.id,
         brinco: formData.brinco,
         especie: formData.especie,
+        race: formData.race || null,
         lote: formData.lote,
         peso: parseFloat(formData.peso),
         data_nascimento: formData.dataNascimento,
@@ -158,12 +126,11 @@ const Livestock = () => {
       });
 
     if (error) {
-      console.error("Error adding animal:", error);
       toast.error("Erro ao cadastrar animal");
       return;
     }
 
-    setFormData({ brinco: "", especie: "", lote: "", peso: "", dataNascimento: "" });
+    setFormData({ brinco: "", especie: "", race: "", lote: "", peso: "", dataNascimento: "" });
     setIsDialogOpen(false);
     toast.success("Animal cadastrado com sucesso!");
     loadAnimals();
@@ -171,12 +138,11 @@ const Livestock = () => {
 
   const handleDeleteAnimal = async (id: string) => {
     const { error } = await supabase
-      .from("animals")
+      .from('animals')
       .delete()
-      .eq("id", id);
+      .eq('id', id);
 
     if (error) {
-      console.error("Error deleting animal:", error);
       toast.error("Erro ao remover animal");
       return;
     }
@@ -184,10 +150,6 @@ const Livestock = () => {
     toast.success("Animal removido com sucesso!");
     loadAnimals();
   };
-
-  if (!user) {
-    return null;
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background">
@@ -199,7 +161,7 @@ const Livestock = () => {
               <Beef className="h-8 w-8 text-primary" />
               <div>
                 <h1 className="text-2xl font-bold text-foreground">Gestão de Rebanho</h1>
-                <p className="text-sm text-muted-foreground">Controle de bovinos, suínos, caprinos e aves</p>
+                <p className="text-sm text-muted-foreground">Controle de bovinos, suínos, equinos, caprinos e aves</p>
               </div>
             </div>
             <Link to="/dashboard">
@@ -257,11 +219,11 @@ const Livestock = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todas</SelectItem>
-                  {getAvailableSpecies().map((species) => (
-                    <SelectItem key={species} value={species}>
-                      {species}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="Bovino">Bovino</SelectItem>
+                  <SelectItem value="Suíno">Suíno</SelectItem>
+                  <SelectItem value="Equino">Equino</SelectItem>
+                  <SelectItem value="Caprino">Caprino</SelectItem>
+                  <SelectItem value="Ave">Ave</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -299,13 +261,148 @@ const Livestock = () => {
                         <SelectValue placeholder="Selecione a espécie" />
                       </SelectTrigger>
                       <SelectContent>
-                        {getAvailableSpecies().map((species) => (
-                          <SelectItem key={species} value={species}>
-                            {species}
-                          </SelectItem>
-                        ))}
+                        <SelectItem value="Bovino">Bovino</SelectItem>
+                        <SelectItem value="Suíno">Suíno</SelectItem>
+                        <SelectItem value="Equino">Equino</SelectItem>
+                        <SelectItem value="Caprino">Caprino</SelectItem>
+                        <SelectItem value="Ave">Ave</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="race">Raça (Opcional)</Label>
+                    {formData.especie === "Bovino" ? (
+                      <Select
+                        value={formData.race}
+                        onValueChange={(value) => setFormData({ ...formData, race: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione a raça" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Nelore">Nelore</SelectItem>
+                          <SelectItem value="Angus">Angus</SelectItem>
+                          <SelectItem value="Brahman">Brahman</SelectItem>
+                          <SelectItem value="Gir">Gir</SelectItem>
+                          <SelectItem value="Guzerá">Guzerá</SelectItem>
+                          <SelectItem value="Tabapuã">Tabapuã</SelectItem>
+                          <SelectItem value="Indubrasil">Indubrasil</SelectItem>
+                          <SelectItem value="Sindi">Sindi</SelectItem>
+                          <SelectItem value="Canchim">Canchim</SelectItem>
+                          <SelectItem value="Caracu">Caracu</SelectItem>
+                          <SelectItem value="Simental">Simental</SelectItem>
+                          <SelectItem value="Hereford">Hereford</SelectItem>
+                          <SelectItem value="Senepol">Senepol</SelectItem>
+                          <SelectItem value="Brangus">Brangus</SelectItem>
+                          <SelectItem value="Braford">Braford</SelectItem>
+                          <SelectItem value="Santa Gertrudis">Santa Gertrudis</SelectItem>
+                          <SelectItem value="Girolando">Girolando</SelectItem>
+                          <SelectItem value="Holandês">Holandês</SelectItem>
+                          <SelectItem value="Jersey">Jersey</SelectItem>
+                          <SelectItem value="Pardo-Suíço">Pardo-Suíço</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : formData.especie === "Suíno" ? (
+                      <Select
+                        value={formData.race}
+                        onValueChange={(value) => setFormData({ ...formData, race: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione a raça" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Duroc">Duroc</SelectItem>
+                          <SelectItem value="Landrace">Landrace</SelectItem>
+                          <SelectItem value="Large White">Large White</SelectItem>
+                          <SelectItem value="Hampshire">Hampshire</SelectItem>
+                          <SelectItem value="Pietrain">Pietrain</SelectItem>
+                          <SelectItem value="Wessex">Wessex</SelectItem>
+                          <SelectItem value="Piau">Piau</SelectItem>
+                          <SelectItem value="Moura">Moura</SelectItem>
+                          <SelectItem value="Caruncho">Caruncho</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : formData.especie === "Equino" ? (
+                      <Select
+                        value={formData.race}
+                        onValueChange={(value) => setFormData({ ...formData, race: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione a raça" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Mangalarga Marchador">Mangalarga Marchador</SelectItem>
+                          <SelectItem value="Mangalarga Paulista">Mangalarga Paulista</SelectItem>
+                          <SelectItem value="Quarto de Milha">Quarto de Milha</SelectItem>
+                          <SelectItem value="Crioulo">Crioulo</SelectItem>
+                          <SelectItem value="Campolina">Campolina</SelectItem>
+                          <SelectItem value="Brasileiro de Hipismo">Brasileiro de Hipismo (BH)</SelectItem>
+                          <SelectItem value="Pantaneiro">Pantaneiro</SelectItem>
+                          <SelectItem value="Lavradeiro">Lavradeiro</SelectItem>
+                          <SelectItem value="Puro Sangue Inglês">Puro Sangue Inglês (PSI)</SelectItem>
+                          <SelectItem value="Puro Sangue Árabe">Puro Sangue Árabe</SelectItem>
+                          <SelectItem value="Appaloosa">Appaloosa</SelectItem>
+                          <SelectItem value="Paint Horse">Paint Horse</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : formData.especie === "Ave" ? (
+                      <Select
+                        value={formData.race}
+                        onValueChange={(value) => setFormData({ ...formData, race: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione a raça" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Rhode Island Red">Rhode Island Red</SelectItem>
+                          <SelectItem value="Leghorn">Leghorn</SelectItem>
+                          <SelectItem value="Plymouth Rock">Plymouth Rock</SelectItem>
+                          <SelectItem value="Sussex">Sussex</SelectItem>
+                          <SelectItem value="Brahma">Brahma</SelectItem>
+                          <SelectItem value="Orpington">Orpington</SelectItem>
+                          <SelectItem value="Wyandotte">Wyandotte</SelectItem>
+                          <SelectItem value="Cochin">Cochin</SelectItem>
+                          <SelectItem value="New Hampshire">New Hampshire</SelectItem>
+                          <SelectItem value="Australorp">Australorp</SelectItem>
+                          <SelectItem value="Caipira">Caipira</SelectItem>
+                          <SelectItem value="Garnisé">Garnisé</SelectItem>
+                          <SelectItem value="Cobb">Cobb (Corte)</SelectItem>
+                          <SelectItem value="Ross">Ross (Corte)</SelectItem>
+                          <SelectItem value="Hubbard">Hubbard (Corte)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : formData.especie === "Caprino" ? (
+                      <Select
+                        value={formData.race}
+                        onValueChange={(value) => setFormData({ ...formData, race: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione a raça" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Boer">Boer</SelectItem>
+                          <SelectItem value="Anglo-Nubiana">Anglo-Nubiana</SelectItem>
+                          <SelectItem value="Saanen">Saanen</SelectItem>
+                          <SelectItem value="Parda Alpina">Parda Alpina</SelectItem>
+                          <SelectItem value="Toggenburg">Toggenburg</SelectItem>
+                          <SelectItem value="Murciana">Murciana</SelectItem>
+                          <SelectItem value="Moxotó">Moxotó</SelectItem>
+                          <SelectItem value="Canindé">Canindé</SelectItem>
+                          <SelectItem value="Repartida">Repartida</SelectItem>
+                          <SelectItem value="Marota">Marota</SelectItem>
+                          <SelectItem value="Azul">Azul</SelectItem>
+                          <SelectItem value="Nambi">Nambi</SelectItem>
+                          <SelectItem value="Bhuj">Bhuj</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id="race"
+                        value={formData.race}
+                        onChange={(e) => setFormData({ ...formData, race: e.target.value })}
+                        placeholder="Digite a raça"
+                      />
+                    )}
                   </div>
                   <div>
                     <Label htmlFor="lote">Lote</Label>
@@ -359,6 +456,7 @@ const Livestock = () => {
                 <tr>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Brinco</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Espécie</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Raça</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Lote</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Peso (kg)</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Nascimento</th>
@@ -371,10 +469,11 @@ const Livestock = () => {
                   <tr key={animal.id} className="hover:bg-muted/20 transition-colors">
                     <td className="px-6 py-4 text-sm font-medium text-foreground">{animal.brinco}</td>
                     <td className="px-6 py-4 text-sm text-muted-foreground">{animal.especie}</td>
+                    <td className="px-6 py-4 text-sm text-muted-foreground">{animal.race || '-'}</td>
                     <td className="px-6 py-4 text-sm text-muted-foreground">{animal.lote}</td>
                     <td className="px-6 py-4 text-sm text-muted-foreground">{animal.peso}</td>
                     <td className="px-6 py-4 text-sm text-muted-foreground">
-                      {new Date(animal.dataNascimento).toLocaleDateString('pt-BR')}
+                      {new Date(animal.data_nascimento).toLocaleDateString('pt-BR')}
                     </td>
                     <td className="px-6 py-4">
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">

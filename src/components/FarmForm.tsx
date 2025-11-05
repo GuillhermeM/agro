@@ -28,11 +28,8 @@ const FarmForm = ({ farmData, coordinates, onSuccess }: FarmFormProps) => {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
-  console.log("🔵 FarmForm renderizado com:", { farmData, coordinates });
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("🟢 Formulário submetido:", { name, sizeHectares, cattleCount, notes });
 
     if (!name || !sizeHectares) {
       toast({
@@ -47,7 +44,6 @@ const FarmForm = ({ farmData, coordinates, onSuccess }: FarmFormProps) => {
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      console.log("🟡 Usuário autenticado:", user?.id);
       
       if (!user) {
         toast({
@@ -67,39 +63,27 @@ const FarmForm = ({ farmData, coordinates, onSuccess }: FarmFormProps) => {
         notes: notes || null,
       };
 
-      console.log("🟣 Payload da fazenda:", farmPayload);
-
       if (farmData?.id) {
         // Update existing farm
-        console.log("🔵 Atualizando fazenda existente...");
         const { error } = await supabase
           .from("farms")
           .update(farmPayload)
           .eq("id", farmData.id);
 
-        if (error) {
-          console.error("❌ Erro ao atualizar:", error);
-          throw error;
-        }
+        if (error) throw error;
 
-        console.log("✅ Fazenda atualizada com sucesso!");
         toast({
           title: "Fazenda atualizada!",
           description: "As informações foram atualizadas com sucesso.",
         });
       } else {
         // Insert new farm
-        console.log("🟢 Inserindo nova fazenda...");
         const { error } = await supabase
           .from("farms")
           .insert(farmPayload);
 
-        if (error) {
-          console.error("❌ Erro ao inserir:", error);
-          throw error;
-        }
+        if (error) throw error;
 
-        console.log("✅ Fazenda cadastrada com sucesso!");
         toast({
           title: "Fazenda cadastrada!",
           description: "Sua fazenda foi cadastrada com sucesso.",

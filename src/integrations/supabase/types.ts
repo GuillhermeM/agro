@@ -20,9 +20,11 @@ export type Database = {
           created_at: string
           data_nascimento: string
           especie: string
+          farm_id: string | null
           id: string
           lote: string
           peso: number
+          race: string | null
           status: string
           updated_at: string
           user_id: string
@@ -32,9 +34,11 @@ export type Database = {
           created_at?: string
           data_nascimento: string
           especie: string
+          farm_id?: string | null
           id?: string
           lote: string
           peso: number
+          race?: string | null
           status?: string
           updated_at?: string
           user_id: string
@@ -44,63 +48,21 @@ export type Database = {
           created_at?: string
           data_nascimento?: string
           especie?: string
+          farm_id?: string | null
           id?: string
           lote?: string
           peso?: number
+          race?: string | null
           status?: string
           updated_at?: string
           user_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "animals_user_id_fkey"
-            columns: ["user_id"]
+            foreignKeyName: "animals_farm_id_fkey"
+            columns: ["farm_id"]
             isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      farm_members: {
-        Row: {
-          created_at: string
-          email: string
-          fazenda: string
-          funcao: string
-          id: string
-          nome: string
-          status: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          email: string
-          fazenda: string
-          funcao: string
-          id?: string
-          nome: string
-          status?: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          email?: string
-          fazenda?: string
-          funcao?: string
-          id?: string
-          nome?: string
-          status?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "farm_members_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
+            referencedRelation: "farms"
             referencedColumns: ["id"]
           },
         ]
@@ -151,47 +113,47 @@ export type Database = {
       }
       health_records: {
         Row: {
-          animal_brinco: string
+          animal_id: string | null
           created_at: string
+          custo: number | null
           data: string
+          descricao: string | null
           id: string
-          observacoes: string | null
-          proxima_aplicacao: string
+          tipo: string
           updated_at: string
           user_id: string
-          vacina: string
-          veterinario: string
+          veterinario: string | null
         }
         Insert: {
-          animal_brinco: string
+          animal_id?: string | null
           created_at?: string
+          custo?: number | null
           data: string
+          descricao?: string | null
           id?: string
-          observacoes?: string | null
-          proxima_aplicacao: string
+          tipo: string
           updated_at?: string
           user_id: string
-          vacina: string
-          veterinario: string
+          veterinario?: string | null
         }
         Update: {
-          animal_brinco?: string
+          animal_id?: string | null
           created_at?: string
+          custo?: number | null
           data?: string
+          descricao?: string | null
           id?: string
-          observacoes?: string | null
-          proxima_aplicacao?: string
+          tipo?: string
           updated_at?: string
           user_id?: string
-          vacina?: string
-          veterinario?: string
+          veterinario?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "health_records_user_id_fkey"
-            columns: ["user_id"]
+            foreignKeyName: "health_records_animal_id_fkey"
+            columns: ["animal_id"]
             isOneToOne: false
-            referencedRelation: "profiles"
+            referencedRelation: "animals"
             referencedColumns: ["id"]
           },
         ]
@@ -201,21 +163,18 @@ export type Database = {
           created_at: string
           email: string
           id: string
-          plan_type: string | null
           updated_at: string
         }
         Insert: {
           created_at?: string
           email: string
           id: string
-          plan_type?: string | null
           updated_at?: string
         }
         Update: {
           created_at?: string
           email?: string
           id?: string
-          plan_type?: string | null
           updated_at?: string
         }
         Relationships: []
