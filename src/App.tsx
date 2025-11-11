@@ -11,6 +11,7 @@ import Livestock from "./pages/Livestock";
 import Health from "./pages/Health";
 import Users from "./pages/Users";
 import Auth from "./pages/Auth";
+import Equines from "./pages/Equines";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -33,6 +34,7 @@ const App = () => (
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/mapping" element={<Mapping />} />
           <Route path="/livestock" element={<Livestock />} />
+          <Route path="/equines" element={<Equines />} />
           <Route path="/health" element={<Health />} />
           <Route path="/users" element={<Users />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

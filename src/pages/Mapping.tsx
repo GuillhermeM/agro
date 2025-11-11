@@ -121,16 +121,23 @@ const Mapping = () => {
 
     drawnItemsRef.current.addTo(map);
 
-    // Customizar o Leaflet Draw para exigir mínimo de 4 pontos
+    // Customizar o Leaflet Draw para permitir múltiplos pontos
     const originalPolygonHandler = (L.Draw as any).Polygon.prototype.addVertex;
     (L.Draw as any).Polygon.prototype.addVertex = function(latlng: L.LatLng) {
       originalPolygonHandler.call(this, latlng);
       
       // Mostrar tooltip informativo
-      if (this._markers && this._markers.length > 0 && this._markers.length < 4) {
-        this._tooltip.updateContent({
-          text: `Clique para adicionar pontos. Mínimo: 4 pontos (${this._markers.length}/4)`
-        });
+      if (this._markers && this._markers.length > 0) {
+        const count = this._markers.length;
+        if (count < 3) {
+          this._tooltip.updateContent({
+            text: `Clique para adicionar pontos (${count}/3 mínimo)`
+          });
+        } else {
+          this._tooltip.updateContent({
+            text: `${count} pontos. Clique no primeiro ponto ou dê duplo clique para finalizar`
+          });
+        }
       }
     };
 
@@ -191,18 +198,17 @@ const Mapping = () => {
     map.on(DrawEvent.CREATED, (event: any) => {
       const layer = event.layer;
       
-      // Validar se o polígono tem pelo menos 4 pontos
+      // Validar se o polígono tem pelo menos 3 pontos
       if (layer instanceof L.Polygon) {
         const coordinates = layer.getLatLngs()[0] as L.LatLng[];
         console.log('Polígono criado com', coordinates.length, 'pontos');
         
-        if (coordinates.length < 4) {
+        if (coordinates.length < 3) {
           toast({
             title: "Polígono inválido",
-            description: "O polígono precisa ter pelo menos 4 pontos. Tente novamente.",
+            description: "O polígono precisa ter pelo menos 3 pontos. Tente novamente.",
             variant: "destructive",
           });
-          // Remover a camada inválida
           map.removeLayer(layer);
           return;
         }
@@ -217,10 +223,18 @@ const Mapping = () => {
     });
 
     map.on(DrawEvent.EDITED, (event: any) => {
+      console.log('DrawEvent.EDITED disparado');
       const layers = event.layers;
+      let editedGeoJSON: any = null;
+      
       layers.eachLayer((layer: any) => {
-        setDrawnShape(layer.toGeoJSON());
+        editedGeoJSON = layer.toGeoJSON();
+        console.log('Layer editada:', editedGeoJSON);
       });
+      
+      if (editedGeoJSON) {
+        setDrawnShape(editedGeoJSON);
+      }
     });
 
     mapRef.current = map;
@@ -295,6 +309,29 @@ const Mapping = () => {
     setDialogOpen(false);
   };
 
+  const updateFarmCoordinates = async (farmId: string, coordinates: any) => {
+    const { error } = await supabase
+      .from("farms")
+      .update({ coordinates })
+      .eq("id", farmId);
+
+    if (error) {
+      console.error("Error updating farm coordinates:", error);
+      toast({
+        title: "Erro",
+        description: "Erro ao atualizar coordenadas da fazenda",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({
+      title: "Coordenadas atualizadas!",
+      description: "O mapa da fazenda foi atualizado.",
+    });
+    loadFarmData();
+  };
+
   const handleDeleteFarm = async (farmId: string) => {
     const { error } = await supabase
       .from("farms")
@@ -341,21 +378,32 @@ const Mapping = () => {
                 Nova Fazenda
               </Button>
               {selectedFarm && (
-                <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button variant="outline" size="sm">Editar Informações</Button>
-                  </DialogTrigger>
-                  <DialogContent className="z-[9999]">
-                    <DialogHeader>
-                      <DialogTitle>Editar Fazenda</DialogTitle>
-                    </DialogHeader>
-                    <FarmForm
-                      farmData={selectedFarm}
-                      coordinates={drawnShape || selectedFarm.coordinates}
-                      onSuccess={handleFormSuccess}
-                    />
-                  </DialogContent>
-                </Dialog>
+                <>
+                  <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm">Editar Informações</Button>
+                    </DialogTrigger>
+                    <DialogContent className="z-[9999]">
+                      <DialogHeader>
+                        <DialogTitle>Editar Fazenda</DialogTitle>
+                      </DialogHeader>
+                      <FarmForm
+                        farmData={selectedFarm}
+                        coordinates={drawnShape || selectedFarm.coordinates}
+                        onSuccess={handleFormSuccess}
+                      />
+                    </DialogContent>
+                  </Dialog>
+                  {drawnShape && (
+                    <Button 
+                      variant="default" 
+                      size="sm"
+                      onClick={() => updateFarmCoordinates(selectedFarm.id, drawnShape)}
+                    >
+                      Salvar Mapa
+                    </Button>
+                  )}
+                </>
               )}
               <Link to="/dashboard">
                 <Button variant="ghost" size="sm">

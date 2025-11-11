@@ -49,3 +49,49 @@ export interface Profile {
   created_at: string;
   updated_at: string;
 }
+
+export interface ProductionCost {
+  id: string;
+  user_id: string;
+  farm_id?: string;
+  data: string;
+  categoria: string;
+  tipo: string;
+  descricao?: string;
+  valor: number;
+  quantidade?: number;
+  unidade?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Revenue {
+  id: string;
+  user_id: string;
+  farm_id?: string;
+  data: string;
+  cultura: string;
+  quantidade: number;
+  unidade: string;
+  preco_unitario: number;
+  valor_total: number;
+  notas?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Productivity {
+  id: string;
+  user_id: string;
+  farm_id?: string;
+  data: string;
+  cultura: string;
+  area_hectares: number;
+  producao: number;
+  unidade: string;
+  produtividade_por_ha?: number;
+  safra?: string;
+  talhao?: string;
+  created_at: string;
+  updated_at: string;
+}

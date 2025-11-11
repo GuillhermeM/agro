@@ -17,19 +17,42 @@ import {
   LogOut,
   ArrowUpRight,
   ArrowDownRight,
-  RefreshCw
+  RefreshCw,
+  TrendingDown,
+  Percent
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from "recharts";
-import type { Farm, Animal, HealthRecord } from "@/lib/database.types";
+import { 
+  PieChart, 
+  Pie, 
+  Cell, 
+  ResponsiveContainer, 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  Tooltip, 
+  Legend,
+  LineChart,
+  Line,
+  CartesianGrid
+} from "recharts";
+import type { Farm, Animal, HealthRecord, ProductionCost, Revenue, Productivity } from "@/lib/database.types";
 import { toast } from "sonner";
+import DashboardFilters from "@/components/DashboardFilters";
 
 const Dashboard = () => {
   const [user, setUser] = useState<any>(null);
   const [farms, setFarms] = useState<Farm[]>([]);
   const [animals, setAnimals] = useState<Animal[]>([]);
   const [recentHealthRecords, setRecentHealthRecords] = useState<HealthRecord[]>([]);
+  const [costs, setCosts] = useState<ProductionCost[]>([]);
+  const [revenues, setRevenues] = useState<Revenue[]>([]);
+  const [productivity, setProductivity] = useState<Productivity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedFarm, setSelectedFarm] = useState("all");
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
+  const [selectedMonth, setSelectedMonth] = useState("all");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -88,7 +111,6 @@ const Dashboard = () => {
         console.error('Error loading farms:', farmsError);
         toast.error('Erro ao carregar fazendas');
       } else if (farmsData) {
-        console.log('Farms loaded:', farmsData.length);
         setFarms(farmsData);
       }
 
@@ -103,11 +125,10 @@ const Dashboard = () => {
         console.error('Error loading animals:', animalsError);
         toast.error('Erro ao carregar animais');
       } else if (animalsData) {
-        console.log('Animals loaded:', animalsData.length);
         setAnimals(animalsData);
       }
 
-      // Load recent health records (last 10)
+      // Load health records
       const { data: healthData, error: healthError } = await supabase
         .from('health_records')
         .select('*, animals(brinco, especie)')
@@ -118,8 +139,40 @@ const Dashboard = () => {
       if (healthError) {
         console.error('Error loading health records:', healthError);
       } else if (healthData) {
-        console.log('Health records loaded:', healthData.length);
         setRecentHealthRecords(healthData);
+      }
+
+      // Load production costs
+      const { data: costsData, error: costsError } = await supabase
+        .from('production_costs')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('data', { ascending: false });
+      
+      if (!costsError && costsData) {
+        setCosts(costsData);
+      }
+
+      // Load revenues
+      const { data: revenuesData, error: revenuesError} = await supabase
+        .from('revenues')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('data', { ascending: false });
+      
+      if (!revenuesError && revenuesData) {
+        setRevenues(revenuesData);
+      }
+
+      // Load productivity
+      const { data: productivityData, error: productivityError } = await supabase
+        .from('productivity')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('data', { ascending: false });
+      
+      if (!productivityError && productivityData) {
+        setProductivity(productivityData);
       }
     } catch (error) {
       console.error('Error loading dashboard data:', error);
@@ -132,6 +185,94 @@ const Dashboard = () => {
     await supabase.auth.signOut();
     navigate("/auth");
   };
+
+  // Filter data based on selected filters
+  const filterDataByDate = (data: any[]) => {
+    return data.filter(item => {
+      const itemDate = new Date(item.data);
+      const itemYear = itemDate.getFullYear().toString();
+      const itemMonth = (itemDate.getMonth() + 1).toString();
+      
+      const yearMatch = selectedYear === "all" || itemYear === selectedYear;
+      const monthMatch = selectedMonth === "all" || itemMonth === selectedMonth;
+      const farmMatch = selectedFarm === "all" || item.farm_id === selectedFarm;
+      
+      return yearMatch && monthMatch && farmMatch;
+    });
+  };
+
+  const filteredCosts = filterDataByDate(costs);
+  const filteredRevenues = filterDataByDate(revenues);
+  const filteredProductivity = filterDataByDate(productivity);
+
+  // Calculate Financial KPIs
+  const totalCost = filteredCosts.reduce((sum, cost) => sum + Number(cost.valor), 0);
+  const totalRevenue = filteredRevenues.reduce((sum, rev) => sum + Number(rev.valor_total), 0);
+  const netProfit = totalRevenue - totalCost;
+  const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+
+  // Average productivity per hectare
+  const avgProductivity = filteredProductivity.length > 0
+    ? filteredProductivity.reduce((sum, p) => sum + Number(p.produtividade_por_ha || 0), 0) / filteredProductivity.length
+    : 0;
+
+  // Cost distribution by category
+  const costByCategory = filteredCosts.reduce((acc: any, cost) => {
+    acc[cost.categoria] = (acc[cost.categoria] || 0) + Number(cost.valor);
+    return acc;
+  }, {});
+
+  const costDistributionData = Object.entries(costByCategory).map(([name, value]) => ({
+    name,
+    value: Number(value),
+  }));
+
+  // Revenue vs Cost by culture/month
+  const revenueVsCostData: any[] = [];
+  const cultureMap = new Map();
+
+  filteredRevenues.forEach(rev => {
+    if (!cultureMap.has(rev.cultura)) {
+      cultureMap.set(rev.cultura, { cultura: rev.cultura, receita: 0, custo: 0 });
+    }
+    const entry = cultureMap.get(rev.cultura);
+    entry.receita += Number(rev.valor_total);
+  });
+
+  filteredCosts.forEach(cost => {
+    const cultura = cost.tipo || 'Outros';
+    if (!cultureMap.has(cultura)) {
+      cultureMap.set(cultura, { cultura, receita: 0, custo: 0 });
+    }
+    const entry = cultureMap.get(cultura);
+    entry.custo += Number(cost.valor);
+  });
+
+  cultureMap.forEach(value => revenueVsCostData.push(value));
+
+  // Productivity over time (line chart)
+  const productivityOverTime = filteredProductivity
+    .sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime())
+    .map(p => ({
+      data: new Date(p.data).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }),
+      produtividade: Number(p.produtividade_por_ha || 0),
+      cultura: p.cultura,
+    }));
+
+  // Group by month for line chart
+  const productivityByMonth: any = {};
+  productivityOverTime.forEach(p => {
+    if (!productivityByMonth[p.data]) {
+      productivityByMonth[p.data] = { data: p.data, produtividade: 0, count: 0 };
+    }
+    productivityByMonth[p.data].produtividade += p.produtividade;
+    productivityByMonth[p.data].count += 1;
+  });
+
+  const productivityChartData = Object.values(productivityByMonth).map((item: any) => ({
+    data: item.data,
+    produtividade: (item.produtividade / item.count).toFixed(2),
+  }));
 
   if (!user || loading) {
     return (
@@ -176,7 +317,47 @@ const Dashboard = () => {
     value,
   }));
 
-  const COLORS = ['hsl(var(--primary))', 'hsl(var(--secondary))', 'hsl(var(--accent))', 'hsl(var(--destructive))'];
+  const COLORS = ['hsl(var(--primary))', 'hsl(var(--secondary))', 'hsl(var(--accent))', 'hsl(142 50% 40%)', 'hsl(40 70% 50%)'];
+
+  // Financial KPIs stats
+  const financialStats = [
+    { 
+      label: "Receita Total", 
+      value: `R$ ${totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 
+      icon: DollarSign, 
+      subtext: "período selecionado",
+      trend: totalRevenue > 0 ? "+100%" : "0%",
+      trendUp: true,
+      color: "text-primary" 
+    },
+    { 
+      label: "Custo Total", 
+      value: `R$ ${totalCost.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 
+      icon: TrendingDown, 
+      subtext: "investimento total",
+      trend: "-100%",
+      trendUp: false,
+      color: "text-destructive" 
+    },
+    { 
+      label: "Lucro Líquido", 
+      value: `R$ ${netProfit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 
+      icon: TrendingUp, 
+      subtext: "margem de lucro",
+      trend: `${profitMargin.toFixed(1)}%`,
+      trendUp: netProfit >= 0,
+      color: netProfit >= 0 ? "text-primary" : "text-destructive"
+    },
+    { 
+      label: "Produtividade Média", 
+      value: avgProductivity.toFixed(2), 
+      icon: Activity, 
+      subtext: "por hectare",
+      trend: avgProductivity > 0 ? "+100%" : "0%",
+      trendUp: true,
+      color: "text-accent" 
+    },
+  ];
 
   const stats = [
     { 
@@ -207,13 +388,13 @@ const Dashboard = () => {
       color: "text-accent" 
     },
     { 
-      label: "Alertas Recentes", 
-      value: recentAlerts.toString(), 
-      icon: AlertCircle, 
-      subtext: "últimos 7 dias",
-      trend: `${alertTrend}%`,
-      trendUp: Number(alertTrend) <= 0,
-      color: "text-destructive" 
+      label: "Margem de Lucro", 
+      value: `${profitMargin.toFixed(1)}%`, 
+      icon: Percent, 
+      subtext: "rentabilidade",
+      trend: profitMargin > 0 ? `+${profitMargin.toFixed(1)}%` : "0%",
+      trendUp: profitMargin >= 0,
+      color: profitMargin >= 0 ? "text-primary" : "text-destructive"
     },
   ];
 
@@ -224,6 +405,13 @@ const Dashboard = () => {
       icon: Beef,
       path: "/livestock",
       color: "bg-primary/10 text-primary"
+    },
+    { 
+      title: "Gestão de Equinos", 
+      description: "Controle completo de cavalos e éguas",
+      icon: Activity,
+      path: "/equines",
+      color: "bg-secondary/10 text-secondary"
     },
     { 
       title: "Mapeamento", 
@@ -309,6 +497,184 @@ const Dashboard = () => {
             );
           })}
         </div>
+
+        {/* Filters */}
+        <DashboardFilters
+          farms={farms}
+          selectedFarm={selectedFarm}
+          selectedYear={selectedYear}
+          selectedMonth={selectedMonth}
+          onFarmChange={setSelectedFarm}
+          onYearChange={setSelectedYear}
+          onMonthChange={setSelectedMonth}
+        />
+
+        {/* Financial KPIs */}
+        <div>
+          <h2 className="text-2xl font-bold text-foreground mb-4 flex items-center gap-2">
+            <DollarSign className="h-6 w-6 text-primary" />
+            Indicadores Financeiros
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {financialStats.map((stat) => {
+              const Icon = stat.icon;
+              const TrendIcon = stat.trendUp ? ArrowUpRight : ArrowDownRight;
+              return (
+                <Card key={stat.label} className="hover:shadow-lg transition-all duration-300 border-primary/20">
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className={`p-3 rounded-lg ${stat.color} bg-opacity-10`}>
+                        <Icon className={`h-6 w-6 ${stat.color}`} />
+                      </div>
+                      <Badge variant={stat.trendUp ? "default" : "destructive"} className="gap-1">
+                        <TrendIcon className="h-3 w-3" />
+                        {stat.trend}
+                      </Badge>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-1">{stat.label}</p>
+                      <h3 className="text-2xl font-bold text-foreground mb-1">{stat.value}</h3>
+                      <p className="text-xs text-muted-foreground">{stat.subtext}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Financial Charts Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Revenue vs Cost by Culture */}
+          {revenueVsCostData.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BarChart className="h-5 w-5 text-primary" />
+                  Receita x Custo por Cultura
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={revenueVsCostData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis dataKey="cultura" stroke="hsl(var(--foreground))" />
+                      <YAxis stroke="hsl(var(--foreground))" />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: 'hsl(var(--card))', 
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '8px'
+                        }}
+                      />
+                      <Legend />
+                      <Bar dataKey="receita" fill="hsl(var(--primary))" name="Receita" radius={[8, 8, 0, 0]} />
+                      <Bar dataKey="custo" fill="hsl(var(--destructive))" name="Custo" radius={[8, 8, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Cost Distribution */}
+          {costDistributionData.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <PieChart className="h-5 w-5 text-primary" />
+                  Distribuição de Custos
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={costDistributionData}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        outerRadius={100}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {costDistributionData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip 
+                        formatter={(value: any) => `R$ ${Number(value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+                        contentStyle={{ 
+                          backgroundColor: 'hsl(var(--card))', 
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '8px'
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="grid grid-cols-2 gap-4 mt-4">
+                  {costDistributionData.map((cost: any, index) => (
+                    <div key={cost.name} className="flex items-center gap-2">
+                      <div 
+                        className="w-3 h-3 rounded-full" 
+                        style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                      />
+                      <span className="text-sm text-muted-foreground">
+                        {cost.name}: <span className="font-medium text-foreground">
+                          R$ {Number(cost.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        {/* Productivity Over Time */}
+        {productivityChartData.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-primary" />
+                Produtividade ao Longo do Tempo
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={productivityChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="data" stroke="hsl(var(--foreground))" />
+                    <YAxis stroke="hsl(var(--foreground))" />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: 'hsl(var(--card))', 
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px'
+                      }}
+                    />
+                    <Legend />
+                    <Line 
+                      type="monotone" 
+                      dataKey="produtividade" 
+                      stroke="hsl(var(--primary))" 
+                      strokeWidth={3}
+                      name="Produtividade (kg/ha)"
+                      dot={{ fill: 'hsl(var(--primary))', r: 6 }}
+                      activeDot={{ r: 8 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
